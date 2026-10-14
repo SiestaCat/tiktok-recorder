@@ -11,4 +11,4 @@ python -m invisible_playwright fetch
 pipx install yt-dlp
 pipx upgrade yt-dlp
 
-bash record.sh username
+python record.py @username --login

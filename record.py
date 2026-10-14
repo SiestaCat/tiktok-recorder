@@ -20,7 +20,8 @@ if not re.fullmatch(r"[a-zA-Z0-9._]+", username):
     sys.exit("Usuario no válido")
 
 liveUrl = f"https://www.tiktok.com/@{username}/live"
-profileDir = Path.home() / ".local/share/tiktok-playwright"
+dataDir = Path(__file__).resolve().parent / "data"
+profileDir = dataDir / "profile"
 profileDir.mkdir(parents=True, exist_ok=True)
 seedFile = profileDir / ".invisible-playwright-seed"
 if seedFile.exists():
@@ -29,7 +30,7 @@ else:
     profileSeed = secrets.randbelow(2**31 - 1) + 1
     seedFile.write_text(str(profileSeed))
 
-outputDir = Path.home() / "Videos/TikTok" / username
+outputDir = dataDir / "videos" / username
 outputDir.mkdir(parents=True, exist_ok=True)
 
 streams = {}

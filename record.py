@@ -35,17 +35,28 @@ outputDir.mkdir(parents=True, exist_ok=True)
 
 streams = {}
 
-def addStream(value, path=""):
+def addStream(value, path="", codec=""):
     if isinstance(value, dict):
+        sdkParams = value.get("sdk_params")
+        if isinstance(sdkParams, str):
+            try:
+                sdkParams = json.loads(sdkParams)
+            except ValueError:
+                sdkParams = {}
+
+        if isinstance(sdkParams, dict):
+            codec = str(sdkParams.get("VCodec") or sdkParams.get("v_codec") or codec).lower()
+        codec = str(value.get("VCodec") or value.get("v_codec") or codec).lower()
+
         for key, item in value.items():
-            addStream(item, f"{path}/{key}")
+            addStream(item, f"{path}/{key}", codec)
     elif isinstance(value, list):
         for item in value:
-            addStream(item, path)
+            addStream(item, path, codec)
     elif isinstance(value, str):
         if value.startswith(("{", "[")):
             try:
-                addStream(json.loads(value), path)
+                addStream(json.loads(value), path, codec)
             except (ValueError, RecursionError):
                 pass
         elif value.startswith("https://"):
@@ -56,7 +67,11 @@ def addStream(value, path=""):
             if isFlv or isHls:
                 score = 100 if "origin" in path.lower() else 0
                 score += 10 if isFlv else 0
-                streams[value] = max(streams.get(value, 0), score)
+                if codec in ("h264", "avc", "264"):
+                    score += 1000
+                elif codec in ("h265", "hevc", "265") or "hevc" in path.lower():
+                    score -= 1000
+                streams[value] = max(streams.get(value, float("-inf")), score)
 
 def onResponse(response):
     if "json" not in response.headers.get("content-type", ""):
@@ -121,27 +136,36 @@ with InvisiblePlaywright(profile_dir=profileDir, seed=profileSeed, headless=Fals
                 time.sleep(60)
                 continue
 
-            streamUrl = max(streams, key=streams.get)
             outputFile = outputDir / f"{username}_{datetime.now():%Y-%m-%d_%H-%M-%S}.mkv"
-
-            print(f"Grabando: {outputFile}", flush=True)
-
             userAgent = page.evaluate("navigator.userAgent")
 
-            subprocess.run([
-                "ffmpeg",
-                "-hide_banner",
-                "-user_agent", userAgent,
-                "-referer", liveUrl,
-                "-analyzeduration", "30000000",
-                "-probesize", "50000000",
-                "-i", streamUrl,
-                "-map", "0:v:0",
-                "-map", "0:a:0?",
-                "-c", "copy",
-                "-y",
-                str(outputFile)
-            ])
+            for streamUrl in sorted(streams, key=streams.get, reverse=True):
+                print(f"Grabando: {outputFile}", flush=True)
+
+                result = subprocess.run([
+                    "ffmpeg",
+                    "-hide_banner",
+                    "-user_agent", userAgent,
+                    "-referer", liveUrl,
+                    "-analyzeduration", "30000000",
+                    "-probesize", "50000000",
+                    "-i", streamUrl,
+                    "-map", "0:v:0",
+                    "-map", "0:a:0?",
+                    "-c", "copy",
+                    "-y",
+                    str(outputFile)
+                ])
+
+                if result.returncode == 0:
+                    break
+                if outputFile.exists() and outputFile.stat().st_size > 0:
+                    print(f"FFmpeg terminó con error; se conserva la grabación parcial: {outputFile}")
+                    break
+                outputFile.unlink(missing_ok=True)
+                print("La URL no se pudo grabar. Probando otra transmisión disponible...")
+            else:
+                print("No se pudo grabar ninguna transmisión. Si solo hay H.265, actualiza FFmpeg a 8.1 o superior.")
 
             print("Grabación terminada. Reintentando...")
             time.sleep(60)

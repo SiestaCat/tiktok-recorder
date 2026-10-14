@@ -73,22 +73,9 @@ def addStream(value, path="", codec=""):
                     score -= 1000
                 streams[value] = max(streams.get(value, float("-inf")), score)
 
-def onResponse(response):
-    if "json" not in response.headers.get("content-type", ""):
-        return
-    if not any(part in response.url for part in ("live", "room", "webcast")):
-        return
-    try:
-        addStream(response.json())
-    except Exception:
-        pass
-
 with InvisiblePlaywright(profile_dir=profileDir, seed=profileSeed, headless=False) as context:
 
     page = context.pages[0] if context.pages else context.new_page()
-    page.on("request", lambda request: addStream(request.url))
-    page.on("response", onResponse)
-
     if "--login" in sys.argv:
         page.goto("https://www.tiktok.com")
         input("Inicia sesión en TikTok y pulsa Enter aquí...")
@@ -103,11 +90,6 @@ with InvisiblePlaywright(profile_dir=profileDir, seed=profileSeed, headless=Fals
             try:
                 page.goto(liveUrl, wait_until="domcontentloaded", timeout=45000)
                 page.wait_for_timeout(7000)
-
-                for scriptId in ("SIGI_STATE", "__UNIVERSAL_DATA_FOR_REHYDRATION__"):
-                    element = page.query_selector(f"script#{scriptId}")
-                    if element:
-                        addStream(element.text_content() or "")
 
                 try:
                     info = page.evaluate("""async username => {
@@ -124,9 +106,34 @@ with InvisiblePlaywright(profile_dir=profileDir, seed=profileSeed, headless=Fals
                         if (!response.ok) return null;
                         return await response.json();
                     }""", username)
-                    addStream(info)
+
+                    if not isinstance(info, dict) or info.get("statusCode") != 0:
+                        raise ValueError("TikTok no devolvió una respuesta válida para este usuario")
+
+                    data = info.get("data") or {}
+                    userInfo = data.get("user") or {}
+                    liveRoom = data.get("liveRoom") or {}
+
+                    apiUsername = userInfo.get("uniqueId")
+                    if apiUsername and apiUsername.lower() != username.lower():
+                        raise ValueError(f"El usuario de la respuesta es @{apiUsername}, no @{username}")
+
+                    roomId = str(userInfo.get("roomId") or "")
+                    liveRoomId = str(liveRoom.get("roomId") or "")
+                    if roomId and liveRoomId and roomId != liveRoomId:
+                        raise ValueError(f"La sala del usuario ({roomId}) no coincide con la del LIVE ({liveRoomId})")
+
+                    if str(liveRoom.get("status")) != "2":
+                        print(f"@{username} no tiene un LIVE activo (estado: {liveRoom.get('status')}).")
+                    else:
+                        # Solo utilizar URLs de la sala del usuario solicitado.
+                        # No recoger streams de peticiones, recomendaciones ni otros LIVE.
+                        addStream(liveRoom.get("streamData"))
+                        addStream(liveRoom.get("hevcStreamData"))
+                        print(f"Sala verificada: {roomId or liveRoomId or 'sin ID'} | streamId: {liveRoom.get('streamId', 'no disponible')}")
+
                 except Exception as error:
-                    print(f"API no disponible: {error}")
+                    print(f"No se pudo verificar la sala de @{username}: {error}")
 
             except Exception as error:
                 print(f"Error de navegación: {error}")
@@ -140,6 +147,8 @@ with InvisiblePlaywright(profile_dir=profileDir, seed=profileSeed, headless=Fals
             userAgent = page.evaluate("navigator.userAgent")
 
             for streamUrl in sorted(streams, key=streams.get, reverse=True):
+                parsedStream = urlsplit(streamUrl)
+                print(f"Fuente: {parsedStream.netloc}{parsedStream.path}", flush=True)
                 print(f"Grabando: {outputFile}", flush=True)
 
                 result = subprocess.run([

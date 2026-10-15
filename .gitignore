@@ -1,3 +1,4 @@
 .history
 .venv
 data
+__pycache__/

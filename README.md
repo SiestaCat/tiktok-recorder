@@ -1,4 +1,4 @@
-sudo apt install ffmpeg pipx python3-venv -y
+sudo apt install ffmpeg pipx python3-venv xvfb -y
 
 python3 -m venv .venv
 source .venv/bin/activate

@@ -74,6 +74,6 @@ def createBrowserFactory(profileDir, username, playwrightClass=None):
     def browserFactory():
         profileCopy = cloneProfile(profileDir, username)
         print(f"@{username} | Perfil de Playwright: {profileCopy}", flush=True)
-        return playwrightClass(profile_dir=profileCopy, seed=profileSeed, headless=False)
+        return playwrightClass(profile_dir=profileCopy, seed=profileSeed, headless=True)
 
     return browserFactory
